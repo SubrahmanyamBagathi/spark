@@ -471,4 +471,4 @@ with gr.Blocks(title="AI-Powered 3D Asset Generator (Celery Offloading)") as dem
                 outputs=[result_status_output, result_image_output, result_link_output, full_result_json]
             )
 
-demo.launch(server_name="0.0.0.0", server_port=7861)
+demo.launch(server_name="0.0.0.0", server_port=7000)
