@@ -323,152 +323,154 @@ def check_task_status(task_id: str):
         return "Task ID not found or invalid.", None, None, ""
 
 # --- Gradio Interface ---
-with gr.Blocks(title="AI-Powered 3D Asset Generator (Celery Offloading)") as demo:
-    gr.Markdown("# AI-Powered 3D Asset Generator")
-    gr.Markdown("This application offloads heavy AI generation tasks to Celery workers (on GPU instances), allowing the Gradio UI to remain responsive on a CPU instance.")
+if __name__ == "__main__":
+    with gr.Blocks(title="AI-Powered 3D Asset Generator (Celery Offloading)") as demo:
+        gr.Markdown("# AI-Powered 3D Asset Generator")
+        gr.Markdown("This application offloads heavy AI generation tasks to Celery workers (on GPU instances), allowing the Gradio UI to remain responsive on a CPU instance.")
 
-    s3_bucket_input_global = gr.Textbox(label="S3 Bucket Name", value="sparkassets", interactive=True)
+        s3_bucket_input_global = gr.Textbox(label="S3 Bucket Name", value="sparkassets", interactive=True)
 
-    with gr.Tabs():
-        with gr.TabItem("Text to Image"):
-            gr.Markdown("## Text-to-Image Generation")
-            gr.Markdown("Generate images from text descriptions. **All prompts are automatically optimized for 3D asset generation** with added keywords for better 3D model quality.")
-            
-            with gr.Row():
-                gr.Markdown("### 🎯 3D Generation Optimization")
-                gr.Checkbox(label="Enabled", value=True, interactive=False) 
+        with gr.Tabs():
+            with gr.TabItem("Text to Image"):
+                gr.Markdown("## Text-to-Image Generation")
+                gr.Markdown("Generate images from text descriptions. **All prompts are automatically optimized for 3D asset generation** with added keywords for better 3D model quality.")
+                
+                with gr.Row():
+                    gr.Markdown("### � 3D Generation Optimization")
+                    gr.Checkbox(label="Enabled", value=True, interactive=False) 
 
-            text_to_image_prompt = gr.Textbox(
-                label="Text Prompt", 
-                placeholder="💡 Tip: Describe objects clearly for best 3D generation results. Background and environment terms will be automatically optimized.",
-                lines=3
-            )
-            
-            base_filename_txt2img = gr.Textbox(label="Base Filename for Image(s)", placeholder="e.g., my_2d_image")
+                text_to_image_prompt = gr.Textbox(
+                    label="Text Prompt", 
+                    placeholder="💡 Tip: Describe objects clearly for best 3D generation results. Background and environment terms will be automatically optimized.",
+                    lines=3
+                )
+                
+                base_filename_txt2img = gr.Textbox(label="Base Filename for Image(s)", placeholder="e.g., my_2d_image")
 
-            with gr.Row():
-                width_slider_txt2img = gr.Slider(minimum=256, maximum=1024, value=512, step=64, label="Width")
-                height_slider_txt2img = gr.Slider(minimum=256, maximum=1024, value=512, step=64, label="Height")
-            
-            with gr.Row():
-                num_images_slider_txt2img = gr.Slider(minimum=1, maximum=4, value=1, step=1, label="Number of Images")
-                model_dropdown_txt2img = gr.Dropdown(
-                    label="Model", 
-                    choices=["SDXL Turbo: High-quality local GPU image generation optimized for 3D"], 
-                    value="SDXL Turbo: High-quality local GPU image generation optimized for 3D",
-                    interactive=False
+                with gr.Row():
+                    width_slider_txt2img = gr.Slider(minimum=256, maximum=1024, value=512, step=64, label="Width")
+                    height_slider_txt2img = gr.Slider(minimum=256, maximum=1024, value=512, step=64, label="Height")
+                
+                with gr.Row():
+                    num_images_slider_txt2img = gr.Slider(minimum=1, maximum=4, value=1, step=1, label="Number of Images")
+                    model_dropdown_txt2img = gr.Dropdown(
+                        label="Model", 
+                        choices=["SDXL Turbo: High-quality local GPU image generation optimized for 3D"], 
+                        value="SDXL Turbo: High-quality local GPU image generation optimized for 3D",
+                        interactive=False
+                    )
+                
+                generate_image_button = gr.Button("🚀 Generate Image from Text (3D-Optimized)")
+                image_generation_status = gr.Textbox(label="Task Status", lines=1)
+                image_generation_output = gr.Gallery(label="Generated Images", columns=2, height='auto')
+
+                generate_image_button.click(
+                    fn=submit_2d_image_task,
+                    inputs=[text_to_image_prompt, width_slider_txt2img, height_slider_txt2img, num_images_slider_txt2img, s3_bucket_input_global, base_filename_txt2img],
+                    outputs=[image_generation_status, image_generation_output]
                 )
             
-            generate_image_button = gr.Button("🚀 Generate Image from Text (3D-Optimized)")
-            image_generation_status = gr.Textbox(label="Task Status", lines=1)
-            image_generation_output = gr.Gallery(label="Generated Images", columns=2, height='auto')
+            with gr.TabItem("Grid to Image"):
+                gr.Markdown("## Grid to Image Visualization")
+                gr.Markdown("""
+                **Grid Format**
+                Use numbers to represent different terrain types:
+                * **0**: Plain
+                * **1**: Forest
+                * **2**: Mountain
+                * **3**: Water
+                * **4**: Desert
+                * **5**: Snow
+                * **6**: Swamp
+                * **7**: Hills
+                * **8**: Urban
+                * **9**: Ruins
+                """)
+                
+                grid_data_input = gr.Textbox(label="Grid Data (JSON array of arrays)", lines=10, 
+                                             placeholder="Example: [[0,0,1,1],[0,1,1,0]]")
+                load_sample_grid_button = gr.Button("Load Sample Grid")
+                
+                base_filename_grid2img = gr.Textbox(label="Base Filename for Visualization", placeholder="e.g., my_grid_map")
 
-            generate_image_button.click(
-                fn=submit_2d_image_task,
-                inputs=[text_to_image_prompt, width_slider_txt2img, height_slider_txt2img, num_images_slider_txt2img, s3_bucket_input_global, base_filename_txt2img],
-                outputs=[image_generation_status, image_generation_output]
-            )
-        
-        with gr.TabItem("Grid to Image"):
-            gr.Markdown("## Grid to Image Visualization")
-            gr.Markdown("""
-            **Grid Format**
-            Use numbers to represent different terrain types:
-            * **0**: Plain
-            * **1**: Forest
-            * **2**: Mountain
-            * **3**: Water
-            * **4**: Desert
-            * **5**: Snow
-            * **6**: Swamp
-            * **7**: Hills
-            * **8**: Urban
-            * **9**: Ruins
-            """)
-            
-            grid_data_input = gr.Textbox(label="Grid Data (JSON array of arrays)", lines=10, 
-                                         placeholder="Example: [[0,0,1,1],[0,1,1,0]]")
-            load_sample_grid_button = gr.Button("Load Sample Grid")
-            
-            base_filename_grid2img = gr.Textbox(label="Base Filename for Visualization", placeholder="e.g., my_grid_map")
+                with gr.Row():
+                    width_slider_grid2img = gr.Slider(minimum=256, maximum=1024, value=512, step=64, label="Width")
+                    height_slider_grid2img = gr.Slider(minimum=256, maximum=1024, value=512, step=64, label="Height")
+                
+                with gr.Row():
+                    num_images_slider_grid2img = gr.Slider(minimum=1, maximum=4, value=1, step=1, label="Number of Images")
+                    model_dropdown_grid2img = gr.Dropdown(
+                        label="Model", 
+                        choices=["SDXL Turbo: High-quality local GPU image generation optimized for 3D"], 
+                        value="SDXL Turbo: High-quality local GPU image generation optimized for 3D",
+                        interactive=False
+                    )
+                
+                generate_grid_image_button = gr.Button("Generate Image from Grid")
+                grid_generation_status = gr.Textbox(label="Task Status", lines=1)
+                grid_visualization_output = gr.Gallery(label="Grid Visualization", columns=2, height='auto')
+                generated_terrain_output = gr.Gallery(label="Generated Terrain (Future Feature)", columns=2, height='auto') 
 
-            with gr.Row():
-                width_slider_grid2img = gr.Slider(minimum=256, maximum=1024, value=512, step=64, label="Width")
-                height_slider_grid2img = gr.Slider(minimum=256, maximum=1024, value=512, step=64, label="Height")
-            
-            with gr.Row():
-                num_images_slider_grid2img = gr.Slider(minimum=1, maximum=4, value=1, step=1, label="Number of Images")
-                model_dropdown_grid2img = gr.Dropdown(
-                    label="Model", 
-                    choices=["SDXL Turbo: High-quality local GPU image generation optimized for 3D"], 
-                    value="SDXL Turbo: High-quality local GPU image generation optimized for 3D",
-                    interactive=False
+                load_sample_grid_button.click(
+                    fn=load_sample_grid,
+                    inputs=[],
+                    outputs=[grid_data_input]
+                )
+
+                generate_grid_image_button.click(
+                    fn=submit_grid_image_task,
+                    inputs=[grid_data_input, width_slider_grid2img, height_slider_grid2img, num_images_slider_grid2img, s3_bucket_input_global, base_filename_grid2img],
+                    outputs=[grid_generation_status, grid_visualization_output, generated_terrain_output]
+                )
+
+            with gr.TabItem("3D Generation"):
+                gr.Markdown("## 3D Model Generation from 2D Image")
+                gr.Markdown("Upload a 2D image to generate a 3D GLB model. The generated 3D model will be stored in your S3 bucket.")
+                
+                input_2d_image_for_3d = gr.Image(label="Upload 2D Image", type="pil")
+                base_filename_3d_gen = gr.Textbox(label="Base Filename for 3D Model (e.g., my_3d_asset)")
+                
+                generate_3d_button = gr.Button("Generate 3D Model")
+                status_3d_gen = gr.Textbox(label="Task Status", lines=1)
+                output_3d_model_link = gr.HTML(label="Generated 3D Model Link")
+
+                generate_3d_button.click(
+                    fn=submit_3d_from_2d_task,
+                    inputs=[input_2d_image_for_3d, s3_bucket_input_global, base_filename_3d_gen],
+                    outputs=[status_3d_gen, output_3d_model_link]
+                )
+
+            with gr.TabItem("Decimated 3D"):
+                gr.Markdown("## Decimate 3D Model")
+                gr.Markdown("Upload an existing 3D GLB/OBJ/STL model to reduce its polygon count. The decimated model will be stored in your S3 bucket.")
+                
+                input_3d_file_decimate = gr.File(label="Upload 3D Model (GLB, OBJ, STL)", type="filepath")
+                base_filename_decimate = gr.Textbox(label="Base Filename for Decimated Model (e.g., my_decimated_asset)")
+                
+                decimate_button = gr.Button("Decimate 3D Model")
+                status_decimate = gr.Textbox(label="Task Status", lines=1)
+                output_decimated_model_link = gr.HTML(label="Decimated 3D Model Link")
+
+                decimate_button.click(
+                    fn=submit_decimate_3d_task,
+                    inputs=[input_3d_file_decimate, s3_bucket_input_global, base_filename_decimate],
+                    outputs=[status_decimate, output_decimated_model_link]
                 )
             
-            generate_grid_image_button = gr.Button("Generate Image from Grid")
-            grid_generation_status = gr.Textbox(label="Task Status", lines=1)
-            grid_visualization_output = gr.Gallery(label="Grid Visualization", columns=2, height='auto')
-            generated_terrain_output = gr.Gallery(label="Generated Terrain (Future Feature)", columns=2, height='auto') 
+            with gr.TabItem("Check Task Results"):
+                gr.Markdown("## Check Status of Submitted Tasks")
+                task_id_input = gr.Textbox(label="Enter Task ID")
+                check_status_button = gr.Button("Check Status")
+                result_status_output = gr.Textbox(label="Status", lines=1)
+                result_image_output = gr.Gallery(label="Result Images", columns=2, height='auto')
+                result_link_output = gr.HTML(label="Result Link")
+                full_result_json = gr.JSON(label="Full Result JSON")
 
-            load_sample_grid_button.click(
-                fn=load_sample_grid,
-                inputs=[],
-                outputs=[grid_data_input]
-            )
+                check_status_button.click(
+                    fn=check_task_status,
+                    inputs=[task_id_input],
+                    outputs=[result_status_output, result_image_output, result_link_output, full_result_json]
+                )
 
-            generate_grid_image_button.click(
-                fn=submit_grid_image_task,
-                inputs=[grid_data_input, width_slider_grid2img, height_slider_grid2img, num_images_slider_grid2img, s3_bucket_input_global, base_filename_grid2img],
-                outputs=[grid_generation_status, grid_visualization_output, generated_terrain_output]
-            )
-
-        with gr.TabItem("3D Generation"):
-            gr.Markdown("## 3D Model Generation from 2D Image")
-            gr.Markdown("Upload a 2D image to generate a 3D GLB model. The generated 3D model will be stored in your S3 bucket.")
-            
-            input_2d_image_for_3d = gr.Image(label="Upload 2D Image", type="pil")
-            base_filename_3d_gen = gr.Textbox(label="Base Filename for 3D Model (e.g., my_3d_asset)")
-            
-            generate_3d_button = gr.Button("Generate 3D Model")
-            status_3d_gen = gr.Textbox(label="Task Status", lines=1)
-            output_3d_model_link = gr.HTML(label="Generated 3D Model Link")
-
-            generate_3d_button.click(
-                fn=submit_3d_from_2d_task,
-                inputs=[input_2d_image_for_3d, s3_bucket_input_global, base_filename_3d_gen],
-                outputs=[status_3d_gen, output_3d_model_link]
-            )
-
-        with gr.TabItem("Decimated 3D"):
-            gr.Markdown("## Decimate 3D Model")
-            gr.Markdown("Upload an existing 3D GLB/OBJ/STL model to reduce its polygon count. The decimated model will be stored in your S3 bucket.")
-            
-            input_3d_file_decimate = gr.File(label="Upload 3D Model (GLB, OBJ, STL)", type="filepath")
-            base_filename_decimate = gr.Textbox(label="Base Filename for Decimated Model (e.g., my_decimated_asset)")
-            
-            decimate_button = gr.Button("Decimate 3D Model")
-            status_decimate = gr.Textbox(label="Task Status", lines=1)
-            output_decimated_model_link = gr.HTML(label="Decimated 3D Model Link")
-
-            decimate_button.click(
-                fn=submit_decimate_3d_task,
-                inputs=[input_3d_file_decimate, s3_bucket_input_global, base_filename_decimate],
-                outputs=[status_decimate, output_decimated_model_link]
-            )
-        
-        with gr.TabItem("Check Task Results"):
-            gr.Markdown("## Check Status of Submitted Tasks")
-            task_id_input = gr.Textbox(label="Enter Task ID")
-            check_status_button = gr.Button("Check Status")
-            result_status_output = gr.Textbox(label="Status", lines=1)
-            result_image_output = gr.Gallery(label="Result Images", columns=2, height='auto')
-            result_link_output = gr.HTML(label="Result Link")
-            full_result_json = gr.JSON(label="Full Result JSON")
-
-            check_status_button.click(
-                fn=check_task_status,
-                inputs=[task_id_input],
-                outputs=[result_status_output, result_image_output, result_link_output, full_result_json]
-            )
-
-demo.launch(server_name="0.0.0.0", server_port=7000)
+    demo.launch(server_name="0.0.0.0", server_port=7000)
+�
