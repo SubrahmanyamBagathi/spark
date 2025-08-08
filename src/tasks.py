@@ -1,5 +1,17 @@
 # src/tasks.py
 # Updated for Hunyuan3D-2.1 compatibility with S3 integration
+import multiprocessing as mp
+mp.set_start_method('spawn', force=True)
+
+import sys
+import os
+
+# Add the project root to sys.path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+
 
 import os
 import sys
@@ -16,6 +28,9 @@ import tempfile
 import requests
 import shutil
 import time
+
+torch = None
+
 
 # Ensure current directory is in Python path for local module imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -98,25 +113,35 @@ if os.path.exists(hunyuan_paint_path):
     sys.path.insert(0, hunyuan_paint_path)
 
 # Try importing the specific Hunyuan3D 2.1 modules
-from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
-from hy3dshape.postprocessors import MeshSimplifier, mesh_normalize
-from hy3dshape.rembg import BackgroundRemover
-from textureGenPipeline import Hunyuan3DPaintPipeline, Hunyuan3DPaintConfig
-import trimesh
+def load_hunyuan3d_modules():
+    """Dynamically import all Hunyuan3D modules inside a subprocess to avoid CUDA re-init error."""
+    global Hunyuan3DDiTFlowMatchingPipeline, MeshSimplifier, mesh_normalize
+    global BackgroundRemover, Hunyuan3DPaintPipeline, Hunyuan3DPaintConfig
+    global initialize_hunyuan3d_processors, generate_3d_from_image_core
+    global get_model_info, cleanup_models
+    global TASK_3D_MODULES_LOADED
 
-task_logger.info("✓ Hunyuan3D-2.1 core modules imported successfully")
+    try:
+        from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
+        from hy3dshape.postprocessors import MeshSimplifier, mesh_normalize
+        from hy3dshape.rembg import BackgroundRemover
+        from textureGenPipeline import Hunyuan3DPaintPipeline, Hunyuan3DPaintConfig
 
-# Try importing the worker functions
-from hunyuan3d_worker import (
-    initialize_hunyuan3d_processors, 
-    generate_3d_from_image_core,
-    get_model_info,
-    cleanup_models
-)
+        from hunyuan3d_worker import (
+            initialize_hunyuan3d_processors,
+            generate_3d_from_image_core,
+            get_model_info,
+            cleanup_models
+        )
 
-# Initialize logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-task_logger = logging.getLogger('celery_tasks')
+        TASK_3D_MODULES_LOADED = True
+        task_logger.info("✅ Hunyuan3D modules loaded successfully inside worker subprocess.")
+        return True
+
+    except Exception as e:
+        task_logger.error(f"❌ Failed to load Hunyuan3D modules in worker subprocess: {e}")
+        TASK_3D_MODULES_LOADED = False
+        return False
 
 # Initialize default values
 DEFAULT_TEXT_MODEL = "stability"
@@ -168,20 +193,19 @@ _hunyuan_texgen_worker = None
 TASK_3D_MODULES_LOADED = False
 
 # Step 1: Test basic PyTorch and CUDA
-try:
-    import torch
-    task_logger.info(f"✓ PyTorch loaded: {torch.__version__}")
-    task_logger.info(f"✓ CUDA available: {torch.cuda.is_available()}")
-    
-    if torch.cuda.is_available():
-        task_logger.info(f"✓ GPU device: {torch.cuda.get_device_name()}")
-        task_logger.info(f"✓ GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
-    else:
-        task_logger.warning("⚠ CUDA not available, will use CPU")
-        
-except ImportError as e:
-    task_logger.error(f"✗ PyTorch import failed: {e}")
-    torch = None
+def log_cuda_info():
+    try:
+        import torch
+        task_logger.info(f"✓ PyTorch loaded: {torch.__version__}")
+        task_logger.info(f"✓ CUDA available: {torch.cuda.is_available()}")
+
+        if torch.cuda.is_available():
+            task_logger.info(f"✓ GPU device: {torch.cuda.get_device_name()}")
+            task_logger.info(f"✓ GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+        else:
+            task_logger.warning("⚠ CUDA not available, will use CPU")
+    except ImportError as e:
+        task_logger.error(f"✗ PyTorch import failed: {e}")
 
 # Step 2: Test Transformers and Diffusers
 try:
@@ -239,16 +263,27 @@ except Exception as e:
     TASK_3D_MODULES_LOADED = False
 
 # Try to import SDXL Turbo worker
-TASK_SDXL_MODULES_LOADED = False
 _sdxl_worker = None
+TASK_SDXL_MODULES_LOADED = False
 
-try:
-    from sdxl_turbo_worker import SDXLTurboWorker, get_sdxl_worker
-    TASK_SDXL_MODULES_LOADED = True
-    task_logger.info("✅ SDXL Turbo worker modules loaded successfully")
-except ImportError as e:
-    task_logger.error(f"✗ Failed to load SDXL Turbo worker modules: {e}")
-    TASK_SDXL_MODULES_LOADED = False
+def ensure_sdxl_worker():
+    """Safely initialize SDXL Turbo worker after multiprocessing context is ready."""
+    global _sdxl_worker, TASK_SDXL_MODULES_LOADED
+
+    if _sdxl_worker is None:
+        try:
+            import torch  # delayed
+            mp.set_start_method('spawn', force=True)  # just to be extra safe
+
+            from sdxl_turbo_worker import get_sdxl_worker  # move here
+            _sdxl_worker = get_sdxl_worker()  # this triggers the model load
+
+            TASK_SDXL_MODULES_LOADED = True
+            task_logger.info("✅ SDXL Turbo worker modules loaded successfully")
+        except Exception as e:
+            task_logger.error(f"❌ Error loading SDXL Turbo model: {e}")
+
+
 
 # Create function aliases
 _generate_3d_from_image_core = generate_3d_from_image_core
@@ -351,6 +386,11 @@ def ensure_local_model_initialized():
 def initialize_processors_for_worker(**kwargs):
     """Initialize processors for the worker process"""
     global _text_processor, _grid_processor, _pipeline
+
+    log_cuda_info()
+    
+    if TASK_3D_MODULES_LOADED:
+        load_hunyuan3d_modules()
     
     if not TASK_2D_MODULES_LOADED:
         task_logger.error("Skipping processor initialization: Core task modules failed to load.")
@@ -1725,7 +1765,7 @@ def batch_process_s3_images_for_3d(self, image_s3_keys, processing_options=None)
         "results": results
     }
 
-@app.task(name='generate_image_sdxl_turbo', bind=True)
+@app.task(name='generate_image_sdxl_turbo', bind=True,queue='gpu')
 def generate_image_sdxl_turbo(
     self, 
     prompt, 
@@ -1787,9 +1827,10 @@ def generate_image_sdxl_turbo(
         self.update_state(state='PROGRESS', meta={'progress': 5, 'status': 'Initializing SDXL Turbo...'})
         
         task_logger.info("🔧 Initializing SDXL Turbo worker...")
-        from sdxl_turbo_worker import get_sdxl_worker
+        ensure_sdxl_worker()
+        sdxl_worker = _sdxl_worker
         
-        sdxl_worker = get_sdxl_worker()
+        
         
         # Check worker health
         health = sdxl_worker.health_check()

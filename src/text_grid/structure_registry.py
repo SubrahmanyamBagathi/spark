@@ -8,7 +8,8 @@ import os # Added for path logging
 
 # Import directly from the top-level config.py
 # Alias MONGO_BIOME_COLLECTION to COLLECTION_NAME as it's used that way below
-from config import MONGO_URI, MONGO_DB_NAME, MONGO_BIOME_COLLECTION, USE_CELERY as COLLECTION_NAME, STRUCTURE_TYPES, GRID_DIMENSIONS, USE_CELERY
+from config import MONGO_URI, MONGO_DB_NAME, MONGO_BIOME_COLLECTION, MONGO_STRUCTURE_COLLECTION as COLLECTION_NAME, STRUCTURE_TYPES, GRID_DIMENSIONS, USE_CELERY
+
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,8 @@ def get_biome_names(db_name: str, collection_name: str):
         logger.error("Cannot fetch biome names: MongoDB not connected within structure_registry.")
         return []
     try:
-        names = structure_collection.distinct("biome_name")
+        collection = db[MONGO_BIOME_COLLECTION]
+        names = collection.distinct("biome_name")
         return sorted(list(names))
     except Exception as e:
         logger.error(f"Error fetching biome names: {e}")
@@ -107,7 +109,8 @@ def fetch_biome(db_name: str, collection_name: str, name: str):
         logger.error("Cannot fetch biome: MongoDB not connected within structure_registry.")
         return None
     try:
-        biome = structure_collection.find_one({"biome_name": name})
+        collection = db[MONGO_BIOME_COLLECTION]
+        biome = collection.find_one({"biome_name": name})
         if biome:
             if '_id' in biome:
                 biome['_id'] = str(biome['_id'])
