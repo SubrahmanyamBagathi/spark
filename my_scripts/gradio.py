@@ -1,4 +1,3 @@
-# gradio.py
 import gradio as gr
 from app import generate_2d_image_task, generate_image_from_grid_task, generate_3d_from_2d_task, decimate_3d_task
 import json
