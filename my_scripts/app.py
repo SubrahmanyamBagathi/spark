@@ -1,4 +1,4 @@
-# tasks.py
+# app.py
 import torch
 from PIL import Image, ImageDraw
 from diffusers import StableDiffusionPipeline
@@ -16,9 +16,21 @@ import tempfile
 from celery import Celery
 import io
 
-# Initialize Celery with the configuration file
-celery_app = Celery('tasks')
-celery_app.config_from_object('celeryconfig')
+# Initialize Celery with embedded configuration
+# The name 'app' is used here to match your intended Celery file name.
+celery_app = Celery('app')
+celery_app.conf.update(
+    broker_url='redis://localhost:6379/0',
+    result_backend='redis://localhost:6379/0',
+    result_serializer='json',
+    task_imports=('app',),  # Important: The task module is now 'app'
+    task_queues={
+        'default': {
+            'exchange': 'default',
+            'binding_key': 'default',
+        },
+    }
+)
 
 logging.basicConfig(level=logging.INFO)
 
