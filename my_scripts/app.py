@@ -4,6 +4,14 @@ import boto3
 from celery import Celery, Task
 from diffusers import StableDiffusionPipeline
 import json
+from PIL import Image
+import numpy as np
+import trimesh
+from skimage import measure
+import torch
+from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
+from io import BytesIO
+import base64
 
 # Get AWS credentials from environment variables
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
@@ -74,25 +82,52 @@ def generate_2d_image_task(text_prompt, width, height, num_images, s3_bucket_nam
 @celery_app.task(name="app.generate_3d_from_2d_task")
 def generate_3d_from_2d_task(image_bytes, s3_bucket_name, base_filename):
     """
-    Generates a 3D asset from a 2D image.
+    Generates a 3D asset from a 2D image using the Hunyuan Mini model.
     """
     try:
-        # TODO: Add your 3D generation logic here.
-        # This function should take the image_bytes as input and return the 3D model.
-        # Example: 3D model data is generated here.
+        image_2d_input = Image.open(BytesIO(image_bytes))
 
-        # Placeholder for the generated 3D model file path.
-        # Assume your logic generates a .glb file.
+        hunyuan_model_id = 'tencent/Hunyuan3D-2mini'
+        hunyuan_subfolder = 'hunyuan3d-dit-v2-mini'
+        
+        hunyuan_pipeline = None
+        try:
+            hunyuan_pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+                hunyuan_model_id,
+                subfolder=hunyuan_subfolder,
+                use_safetensors=True,
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
+        except Exception as e:
+            print(f"Failed to load Hunyuan3D-2mini with GPU. Error: {e}")
+            try:
+                hunyuan_pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+                    hunyuan_model_id,
+                    subfolder=hunyuan_subfolder,
+                    use_safetensors=True
+                ).to("cpu")
+                print("Successfully loaded model on CPU.")
+            except Exception as cpu_e:
+                print(f"Failed to load Hunyuan3D-2mini on CPU. Error: {cpu_e}")
+                return {"status": "error", "message": "Failed to load Hunyuan3D model."}
+
+        with torch.no_grad():
+            mesh = hunyuan_pipeline(
+                image=image_2d_input,
+                num_inference_steps=30,
+                octree_resolution=256,
+                generator=torch.Generator(device=hunyuan_pipeline.device).manual_seed(42)
+            )[0]
+        
+        model_bytes = mesh.export(file_type='glb')
+        
+        # Define the S3 path and upload the model
         s3_filename = f"3d_assets/{base_filename}.glb"
+        s3_client.put_object(Bucket=s3_bucket_name, Key=s3_filename, Body=model_bytes)
         
-        # TODO: Replace this with the actual file upload logic.
-        # For now, we'll just upload a dummy file to demonstrate the pathing.
-        dummy_content = b'This is a placeholder for your 3D model.'
-        s3_client.put_object(Bucket=s3_bucket_name, Key=s3_filename, Body=dummy_content)
+        print(f"Uploaded generated 3D asset to {s3_filename}")
         
-        print(f"Uploaded placeholder 3D asset to {s3_filename}")
-        
-        # Construct the URL for the uploaded file.
         s3_url = f"https://{s3_bucket_name}.s3.amazonaws.com/{s3_filename}"
         
         return {"status": "success", "result": s3_url}
@@ -103,22 +138,25 @@ def generate_3d_from_2d_task(image_bytes, s3_bucket_name, base_filename):
 @celery_app.task(name="app.decimate_3d_task")
 def decimate_3d_task(file_bytes, s3_bucket_name, base_filename):
     """
-    Decimates a 3D asset.
+    Decimates a 3D asset using the trimesh library.
     """
     try:
-        # TODO: Add your 3D decimation logic here.
-        # This function should take the file_bytes of the 3D model as input,
-        # decimate it, and return the new model data.
+        # Load the 3D model from bytes
+        # The `trimesh.load` function can handle various formats from a file-like object
+        mesh = trimesh.load(io.BytesIO(file_bytes), file_type='glb')
         
-        # Placeholder for the decimated 3D model file path.
+        # Perform decimation (e.g., reduce to 10% of the original faces)
+        num_faces_to_keep = int(len(mesh.faces) * 0.1)
+        decimated_mesh = mesh.simplify_quadric_decimation(num_faces_to_keep)
+        
+        # Export the decimated mesh to bytes in GLB format
+        decimated_model_bytes = decimated_mesh.export(file_type='glb')
+        
+        # Define the S3 path and upload the decimated model
         s3_filename = f"processed/{base_filename}_decimated.glb"
-
-        # TODO: Replace this with the actual file upload logic.
-        # For now, we'll just upload a dummy file.
-        dummy_content = b'This is a placeholder for your decimated 3D model.'
-        s3_client.put_object(Bucket=s3_bucket_name, Key=s3_filename, Body=dummy_content)
+        s3_client.put_object(Bucket=s3_bucket_name, Key=s3_filename, Body=decimated_model_bytes)
         
-        print(f"Uploaded placeholder decimated 3D asset to {s3_filename}")
+        print(f"Uploaded decimated 3D asset to {s3_filename}")
 
         s3_url = f"https://{s3_bucket_name}.s3.amazonaws.com/{s3_filename}"
 
